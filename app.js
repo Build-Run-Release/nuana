@@ -150,25 +150,25 @@ function outfitCard(outfit, context) {
       </div>
       <div class="outfit-info">
         <div class="outfit-info-row">
-          <div>
+          <div class="outfit-copy">
             <h3 class="outfit-name">${outfit.name}</h3>
             <p class="outfit-desc">${outfit.desc}</p>
             <p class="outfit-occasion">${outfit.occasion}</p>
             <p class="recommendation-reason">${recommendationReason(outfit, context)}</p>
-            <div class="feedback-row" aria-label="How does this look fit?">
-              <button class="feedback-button" data-feedback="good-fit" data-outfit="${outfit.name}" aria-label="Good fit">Good fit</button>
-              <button class="feedback-button" data-feedback="not-my-style" data-outfit="${outfit.name}" aria-label="Not my style">Not my style</button>
-              <button class="feedback-button" data-feedback="too-formal" data-outfit="${outfit.name}" aria-label="Too formal">Too formal</button>
-              <button class="feedback-button" data-feedback="too-casual" data-outfit="${outfit.name}" aria-label="Too casual">Too casual</button>
-              <button class="feedback-button" data-feedback="uncomfortable" data-outfit="${outfit.name}" aria-label="Uncomfortable">Uncomfortable</button>
-              <button class="feedback-button" data-worn="${outfit.name}" aria-label="Mark as worn">Worn</button>
-            </div>
           </div>
           <div class="palette" aria-label="${outfit.style} color palette">
             <span class="swatch" style="background:${outfit.top}"></span>
             <span class="swatch" style="background:${outfit.bottom}"></span>
             <span class="swatch" style="background:${outfit.shoe}"></span>
           </div>
+        </div>
+        <div class="feedback-row" aria-label="How does this look fit?">
+          <button class="feedback-button" data-feedback="good-fit" data-outfit="${outfit.name}" aria-label="Good fit">Good fit</button>
+          <button class="feedback-button" data-feedback="not-my-style" data-outfit="${outfit.name}" aria-label="Not my style">Not my style</button>
+          <button class="feedback-button" data-feedback="too-formal" data-outfit="${outfit.name}" aria-label="Too formal">Too formal</button>
+          <button class="feedback-button" data-feedback="too-casual" data-outfit="${outfit.name}" aria-label="Too casual">Too casual</button>
+          <button class="feedback-button" data-feedback="uncomfortable" data-outfit="${outfit.name}" aria-label="Uncomfortable">Uncomfortable</button>
+          <button class="feedback-button" data-worn="${outfit.name}" aria-label="Mark as worn">Worn</button>
         </div>
       </div>
     </article>`;
@@ -218,8 +218,21 @@ document.querySelector("#stylistForm").addEventListener("submit", async event =>
         context: userContext.getRecommendationContext()
       })
     });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Could not make outfit suggestions");
+    const responseText = await response.text();
+    let result = null;
+    if (responseText) {
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        if (response.ok) throw new Error("The style helper returned an invalid response. Please try again.");
+      }
+    }
+    if (!response.ok) {
+      throw new Error(result?.error || `The style helper request failed (${response.status}). Please try again.`);
+    }
+    if (!result || typeof result.reply !== "string" || !Array.isArray(result.recommendations)) {
+      throw new Error("The style helper returned an incomplete response. Please try again.");
+    }
     reply.textContent = result.reply;
     result.recommendations.forEach(outfit => recommendationCache.set(outfit.name, outfit));
     grid.innerHTML = result.recommendations.map(outfit => outfitCard(outfit, result)).join("");
