@@ -139,19 +139,6 @@ const outfits = outfitBase.map((item, index) => ({
   variants
 }));
 
-function readSaved() {
-  try {
-    if (!fs.existsSync(SAVED_FILE)) return [];
-    return JSON.parse(fs.readFileSync(SAVED_FILE, "utf8"));
-  } catch {
-    return [];
-  }
-}
-
-function writeSaved(saved) {
-  fs.writeFileSync(SAVED_FILE, JSON.stringify(saved, null, 2));
-}
-
 function readJson(file, fallback = []) {
   try {
     if (!fs.existsSync(file)) return fallback;
@@ -192,6 +179,23 @@ function currentSession(request) {
   const session = sessions[token];
   if (!session || session.expiresAt < Date.now()) return null;
   return { token, ...session };
+}
+
+function dataOwner(request) {
+  return currentSession(request)?.email || "guest";
+}
+
+function readScoped(file, owner) {
+  const value = readJson(file);
+  if (Array.isArray(value)) return owner === "guest" ? value : [];
+  return value && Array.isArray(value[owner]) ? value[owner] : [];
+}
+
+function writeScoped(file, owner, value) {
+  const existing = readJson(file, {});
+  const scoped = Array.isArray(existing) ? { guest: existing } : existing;
+  scoped[owner] = value;
+  writeJson(file, scoped);
 }
 
 function setSession(response, token) {
@@ -237,63 +241,162 @@ function bodyFrom(request) {
   });
 }
 
-function recommendationsFor(moodId, gender, exclude, weather, occasion, wardrobe) {
+function generatedLooks(moodId, gender, sources) {
+  const outfitsForMixing = sources.length >= 2 ? sources : outfits.slice(0, 4);
+  const combinations = [];
+  const seen = new Set();
+  for (let topIndex = 0; topIndex < outfitsForMixing.length; topIndex++) {
+    for (let bottomIndex = 0; bottomIndex < outfitsForMixing.length; bottomIndex++) {
+      for (let shoeIndex = 0; shoeIndex < outfitsForMixing.length; shoeIndex++) {
+        const topOutfit = outfitsForMixing[topIndex];
+        const bottomOutfit = outfitsForMixing[bottomIndex];
+        const shoeOutfit = outfitsForMixing[shoeIndex];
+        if (topIndex === bottomIndex && bottomIndex === shoeIndex) continue;
+
+        const topIndexInCatalog = outfitBase.findIndex(item => item[0] === topOutfit.id);
+        const bottomIndexInCatalog = outfitBase.findIndex(item => item[0] === bottomOutfit.id);
+        const shoeIndexInCatalog = outfitBase.findIndex(item => item[0] === shoeOutfit.id);
+        const topParts = variants[gender][topIndexInCatalog].split(" · ");
+        const bottomParts = variants[gender][bottomIndexInCatalog].split(" · ");
+        const shoeParts = variants[gender][shoeIndexInCatalog].split(" · ");
+        const description = [topParts[0], bottomParts[1], shoeParts[2]].join(" · ");
+        if (seen.has(description)) continue;
+        seen.add(description);
+        combinations.push({
+          ...topOutfit,
+          id: `mix-${topOutfit.id}-${bottomOutfit.id}-${shoeOutfit.id}`,
+          baseId: topOutfit.id,
+          name: `${topOutfit.name} Mix ${combinations.length + 1}`,
+          style: `${topOutfit.style} mix`,
+          desc: description,
+          mood: [moodId],
+          top: topOutfit.top,
+          bottom: bottomOutfit.bottom,
+          shoe: shoeOutfit.shoe,
+          gender
+        });
+        if (combinations.length >= 60) return combinations;
+      }
+    }
+  }
+  return combinations;
+}
+
+function validatedContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const context = {};
+  if (["morning", "afternoon", "evening", "night"].includes(value.timeOfDay)) {
+    context.timeOfDay = value.timeOfDay;
+  }
+  if (["winter", "spring", "summer", "autumn"].includes(value.season)) {
+    context.season = value.season;
+  }
+  if (value.weather && typeof value.weather === "object") {
+    const current = value.weather.current;
+    const forecast = value.weather.forecast;
+    context.weather = {
+      current: current && Number.isFinite(current.temperatureC)
+        ? {
+          temperatureC: current.temperatureC,
+          precipitationMm: Number(current.precipitationMm) || 0,
+          weatherCode: Number.isInteger(current.weatherCode) ? current.weatherCode : null
+        }
+        : null,
+      forecast: Array.isArray(forecast) ? forecast.slice(0, 3).map(day => ({
+        precipitationProbabilityMax: Number.isFinite(day.precipitationProbabilityMax)
+          ? day.precipitationProbabilityMax
+          : null
+      })) : []
+    };
+  }
+  return context;
+}
+
+function recommendationsFor(moodId, gender, exclude, weather, occasion, wardrobe, limit = 3, feedback = [], constraints = {}, context = {}) {
   const validGender = ["women", "men", "unisex"].includes(gender) ? gender : "unisex";
   const matching = outfits.filter(outfit => outfit.mood.includes(moodId));
-  const pool = matching.length >= 3 ? matching : [...matching, ...outfits];
-  const unique = [...new Map(pool.map(outfit => [outfit.id, outfit])).values()];
-  let candidates = unique.filter(outfit => !exclude.includes(outfit.id));
-
-  if (Array.isArray(wardrobe) && wardrobe.length) {
-    const owned = wardrobe.map(item => item.toLowerCase());
-    candidates = [...candidates].sort((a, b) => {
-      const indexA = outfitBase.findIndex(item => item[0] === a.id);
-      const indexB = outfitBase.findIndex(item => item[0] === b.id);
-      const textA = `${variants["unisex"][indexA]} ${a.style}`.toLowerCase();
-      const textB = `${variants["unisex"][indexB]} ${b.style}`.toLowerCase();
-      const scoreA = owned.filter(item => textA.includes(item)).length;
-      const scoreB = owned.filter(item => textB.includes(item)).length;
-      return scoreB - scoreA;
-    });
-  }
-
-  if (occasion === "work") {
-    const workFriendly = ["Soft-Focus", "Quiet-Power", "Gallery-Light", "Boardroom-Bloom", "Perfectly-Unbothered"];
-    const workMatches = candidates.filter(outfit => workFriendly.includes(outfit.id));
-    if (workMatches.length >= 2) candidates = workMatches;
-  }
-  if (occasion === "outdoor") {
-    const outdoorFriendly = ["Open-Road", "City-Rhythm", "June-In-Motion", "Perfectly-Unbothered"];
-    const outdoorMatches = candidates.filter(outfit => outdoorFriendly.includes(outfit.id));
-    if (outdoorMatches.length >= 2) candidates = outdoorMatches;
-  }
-  if (weather === "hot") {
-    candidates = candidates.filter(outfit => !["Slow-Sunday", "After-Hours", "Velvet-Low-Tide"].includes(outfit.id));
-  }
-  if (weather === "cold" || weather === "rainy") {
-    candidates = [...candidates].sort((a, b) => {
-      const coldFriendly = ["Soft-Focus", "Quiet-Power", "Slow-Sunday", "Gallery-Light", "Boardroom-Bloom"];
-      return Number(coldFriendly.includes(b.id)) - Number(coldFriendly.includes(a.id));
-    });
-  }
-  if (candidates.length < 3) candidates = unique;
-
-  const seed = `${moodId}-${validGender}-${Date.now()}`;
-  const shuffled = [...candidates].sort((a, b) => {
-    const hashA = [...(a.id + seed)].reduce((n, char) => (n * 31 + char.charCodeAt(0)) >>> 0, 7);
-    const hashB = [...(b.id + seed)].reduce((n, char) => (n * 31 + char.charCodeAt(0)) >>> 0, 7);
-    return (hashA % 997) - (hashB % 997);
-  });
-
-  return shuffled.slice(0, 3).map(outfit => {
+  const sources = matching.length ? matching : outfits;
+  const catalogLooks = sources.map(outfit => {
     const index = outfitBase.findIndex(item => item[0] === outfit.id);
     return {
       ...outfit,
       name: outfit.name.replaceAll("-", " "),
       desc: variants[validGender][index],
+      baseId: outfit.id,
       gender: validGender
     };
   });
+  const allLooks = [...catalogLooks, ...generatedLooks(moodId, validGender, sources)];
+  const excluded = new Set(exclude.map(value => value.toLowerCase()));
+  let candidates = allLooks.filter(outfit =>
+    !excluded.has(outfit.id.toLowerCase()) && !excluded.has(outfit.name.toLowerCase())
+  );
+  if (!candidates.length) candidates = allLooks;
+
+  const owned = Array.isArray(wardrobe) ? wardrobe.map(item => item.toLowerCase()) : [];
+  const workFriendly = ["Soft-Focus", "Quiet-Power", "Gallery-Light", "Boardroom-Bloom", "Perfectly-Unbothered"];
+  const outdoorFriendly = ["Open-Road", "City-Rhythm", "June-In-Motion", "Perfectly-Unbothered"];
+  const coldFriendly = ["Soft-Focus", "Quiet-Power", "Slow-Sunday", "Gallery-Light", "Boardroom-Bloom"];
+  const hotFriendly = ["Golden-Hour", "Open-Road", "June-In-Motion", "Perfectly-Unbothered"];
+  const score = outfit => {
+    const baseId = outfit.baseId || outfit.id;
+    const text = `${outfit.desc} ${outfit.style}`.toLowerCase();
+    const ownershipScore = owned.filter(item => text.includes(item)).length * 3;
+    const occasionScore = occasion === "work"
+      ? Number(workFriendly.includes(baseId)) * 2
+      : occasion === "outdoor"
+        ? Number(outdoorFriendly.includes(baseId)) * 2
+        : 0;
+    const weatherScore = weather === "cold" || weather === "rainy"
+      ? Number(coldFriendly.includes(baseId))
+      : weather === "hot"
+        ? Number(hotFriendly.includes(baseId))
+        : 0;
+    const temperature = context.weather?.current?.temperatureC;
+    const forecastMayBeWet = context.weather?.forecast?.some(day =>
+      Number(day.precipitationProbabilityMax) >= 50
+    );
+    const liveWeatherScore = Number.isFinite(temperature)
+      ? temperature < 12 && coldFriendly.includes(baseId)
+        ? 2
+        : temperature > 25 && hotFriendly.includes(baseId)
+          ? 2
+          : 0
+      : 0;
+    const weatherCode = context.weather?.current?.weatherCode;
+    const currentWeatherIsWet = weatherCode >= 51 && weatherCode <= 67 ||
+      weatherCode >= 80 && weatherCode <= 82 || weatherCode === 95;
+    const rainScore = (
+      Number(context.weather?.current?.precipitationMm) > 0 || currentWeatherIsWet || forecastMayBeWet
+    ) && ["City-Rhythm", "Blue-Note", "Soft-Focus"].includes(baseId) ? 2 : 0;
+    const seasonScore = context.season === "winter" && coldFriendly.includes(baseId)
+      ? 1
+      : context.season === "summer" && hotFriendly.includes(baseId)
+        ? 1
+        : 0;
+    const timeFriendly = context.timeOfDay === "evening"
+      ? ["After-Hours", "Velvet-Low-Tide", "Main-Character", "Paper-Rose"]
+      : context.timeOfDay === "morning"
+        ? ["Soft-Focus", "Golden-Hour", "Slow-Sunday", "Perfectly-Unbothered"]
+        : [];
+    const timeScore = Number(timeFriendly.includes(baseId));
+    const outfitFeedback = feedback.filter(item =>
+      typeof item.outfit === "string" && item.outfit.toLowerCase() === outfit.name.toLowerCase()
+    );
+    const feedbackScore = outfitFeedback.reduce((total, item) =>
+      total + (item.feedback === "good-fit" ? 2 : -6), 0);
+    const comfortScore = constraints.comfort
+      ? Number(/\b(relaxed|soft|easy|cotton|knit|trainers|sneakers|lounge)\b/i.test(text)) * 2
+      : 0;
+    const casualScore = constraints.casual
+      ? Number(!["Quiet-Power", "Boardroom-Bloom", "After-Hours"].includes(baseId)) * 2
+      : 0;
+    const heelScore = constraints.avoidHeels && /\b(heels?|pumps|slingbacks)\b/i.test(outfit.desc) ? -8 : 0;
+    return ownershipScore + occasionScore + weatherScore + liveWeatherScore + rainScore +
+      seasonScore + timeScore + feedbackScore + comfortScore + casualScore + heelScore;
+  };
+  candidates.sort((a, b) => score(b) - score(a) || Math.random() - 0.5);
+  return candidates.slice(0, limit);
 }
 
 const mimeTypes = {
@@ -376,9 +479,9 @@ async function handler(request, response) {
       if (sessions[token].email === session.email) delete sessions[token];
     });
     writeJson(SESSIONS_FILE, sessions);
-    writeSaved([]);
-    writeJson(HISTORY_FILE, []);
-    writeJson(FEEDBACK_FILE, []);
+    writeScoped(SAVED_FILE, session.email, []);
+    writeScoped(HISTORY_FILE, session.email, []);
+    writeScoped(FEEDBACK_FILE, session.email, []);
     response.setHeader("Set-Cookie", "nuana_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return json(response, 200, { status: "account-deleted" });
   }
@@ -399,18 +502,43 @@ async function handler(request, response) {
   if (request.method === "POST" && url.pathname === "/api/travel/capsule") {
     try {
       const payload = await bodyFrom(request);
-      const days = Math.min(Math.max(Number(payload.days) || 3, 1), 14);
-      const weather = ["cold", "mild", "hot", "rainy"].includes(payload.weather) ? payload.weather : "mild";
-      const gender = ["women", "men", "unisex"].includes(payload.gender) ? payload.gender : "unisex";
-      const capsuleIds = weather === "hot"
+      const days = payload.days === undefined ? 3 : Number(payload.days);
+      if (!Number.isInteger(days) || days < 1 || days > 14) {
+        return json(response, 400, { error: "Trip length must be a whole number from 1 to 14" });
+      }
+      const weather = payload.weather === undefined ? "mild" : payload.weather;
+      if (!["any", "cold", "mild", "hot", "rainy"].includes(weather)) {
+        return json(response, 400, { error: "Unknown weather" });
+      }
+      const gender = payload.gender === undefined ? "unisex" : payload.gender;
+      if (!["women", "men", "unisex"].includes(gender)) {
+        return json(response, 400, { error: "Unknown presentation option" });
+      }
+      if (payload.wardrobe !== undefined &&
+          (!Array.isArray(payload.wardrobe) || payload.wardrobe.some(item => typeof item !== "string"))) {
+        return json(response, 400, { error: "Wardrobe must be a list of item names" });
+      }
+      const wardrobeItems = (payload.wardrobe || []).map(item => item.toLowerCase());
+      const weatherOrder = weather === "hot"
         ? ["June-In-Motion", "Perfectly-Unbothered", "Open-Road", "Golden-Hour"]
         : weather === "cold"
           ? ["Soft-Focus", "Quiet-Power", "Slow-Sunday", "Open-Road"]
           : weather === "rainy"
             ? ["City-Rhythm", "Perfectly-Unbothered", "Blue-Note", "Soft-Focus"]
             : ["Soft-Focus", "Perfectly-Unbothered", "City-Rhythm", "June-In-Motion"];
-      const capsule = capsuleIds.slice(0, Math.min(3 + Math.ceil(days / 4), 6)).map((id, index) => {
-        const outfit = outfits.find(item => item.id === id);
+      const ranked = [...weatherOrder, ...outfits.map(outfit => outfit.id)]
+        .filter((id, index, list) => list.indexOf(id) === index)
+        .map(id => outfits.find(outfit => outfit.id === id))
+        .sort((a, b) => {
+          const itemText = outfit => {
+            const index = outfitBase.findIndex(item => item[0] === outfit.id);
+            return `${variants[gender][index]} ${outfit.style}`.toLowerCase();
+          };
+          return wardrobeItems.filter(item => itemText(b).includes(item)).length -
+            wardrobeItems.filter(item => itemText(a).includes(item)).length;
+        });
+      const capsule = ranked.slice(0, days).map((outfit, index) => {
+        const id = outfit.id;
         const variantIndex = outfitBase.findIndex(item => item[0] === id);
         return {
           day: index + 1,
@@ -425,7 +553,71 @@ async function handler(request, response) {
         weather,
         gender,
         capsule,
-        packingTip: "Pack interchangeable neutral shoes and repeat the outer layer before adding new items."
+        packingTip: "Start with the listed looks, then rewear compatible layers and shoes to keep your bag compact."
+      });
+    } catch (error) {
+      return json(response, 400, { error: error.message });
+    }
+  }
+  if (request.method === "POST" && url.pathname === "/api/stylist") {
+    try {
+      const payload = await bodyFrom(request);
+      const prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
+      if (!prompt || prompt.length > 500) {
+        return json(response, 400, { error: "Describe your styling question in 1 to 500 characters" });
+      }
+      const text = prompt.toLowerCase();
+      const mood = moods.find(item => text.includes(item.id) || text.includes(item.name.toLowerCase()))?.id ||
+        (moods.some(item => item.id === payload.mood) ? payload.mood : "happy");
+      const weather = /\b(rain|rainy|raining|wet)\b/.test(text)
+        ? "rainy"
+        : /\b(cold|chilly|freezing|winter)\b/.test(text)
+          ? "cold"
+          : /\b(hot|heat|summer)\b/.test(text)
+            ? "hot"
+            : /\b(mild|spring|autumn|fall)\b/.test(text)
+              ? "mild"
+              : ["any", "cold", "mild", "hot", "rainy"].includes(payload.weather)
+                ? payload.weather
+                : "any";
+      const occasion = /\b(work(?:day)?|office|interview|meeting)\b/.test(text)
+        ? "work"
+        : /\b(date|dinner|restaurant)\b/.test(text)
+          ? "date"
+          : /\b(event|party|wedding|concert)\b/.test(text)
+            ? "event"
+            : /\b(travel|trip|packing|pack)\b/.test(text)
+              ? "travel"
+              : /\b(outdoor|hike|hiking|walk)\b/.test(text)
+                ? "outdoor"
+                : ["everyday", "work", "date", "event", "travel", "outdoor"].includes(payload.occasion)
+                  ? payload.occasion
+                  : "everyday";
+      const gender = ["women", "men", "unisex"].includes(payload.gender) ? payload.gender : "unisex";
+      const wardrobeItems = Array.isArray(payload.wardrobe)
+        ? payload.wardrobe.filter(item => typeof item === "string").slice(0, 40)
+        : [];
+      const constraints = {
+        comfort: /\b(comfortable|comfort|comfy|relaxed|easy)\b/.test(text),
+        casual: /\b(casual|less formal|not too formal)\b/.test(text),
+        avoidHeels: /\b(no heels?|without heels?|flat shoes?)\b/.test(text)
+      };
+      const feedback = readScoped(FEEDBACK_FILE, dataOwner(request));
+      const context = validatedContext(payload.context);
+      const recommendations = recommendationsFor(mood, gender, [], weather, occasion, wardrobeItems, 6, feedback, constraints, context);
+      const moodName = moods.find(item => item.id === mood).name.toLowerCase();
+      const preferences = [
+        constraints.comfort && "comfortable pieces",
+        constraints.casual && "a more casual feel",
+        constraints.avoidHeels && "flat footwear"
+      ].filter(Boolean);
+      const tailoring = preferences.length ? ` I focused on ${preferences.join(", ")}.` : "";
+      return json(response, 200, {
+        reply: `Here are ${recommendations.length} ideas for a ${moodName} mood, tuned for ${weather} weather and ${occasion} plans.${tailoring} I prioritized the wardrobe pieces you selected. This private helper uses local styling rules; it does not save your prompt or send it to an AI service.`,
+        mood,
+        weather,
+        occasion,
+        recommendations
       });
     } catch (error) {
       return json(response, 400, { error: error.message });
@@ -438,25 +630,42 @@ async function handler(request, response) {
     const occasion = url.searchParams.get("occasion") || "everyday";
     const wardrobe = (url.searchParams.get("wardrobe") || "").split(",").map(item => item.trim()).filter(Boolean);
     const exclude = (url.searchParams.get("exclude") || "").split(",").filter(Boolean);
+    const limit = Number(url.searchParams.get("limit") || 3);
+    const rawContext = url.searchParams.get("context") || "";
+    if (rawContext.length > 5000) return json(response, 400, { error: "Local context is too large" });
+    let context = {};
+    if (rawContext) {
+      try {
+        context = validatedContext(JSON.parse(rawContext));
+      } catch {
+        return json(response, 400, { error: "Local context must be valid JSON" });
+      }
+    }
     if (!moods.some(item => item.id === mood)) return json(response, 400, { error: "Unknown mood" });
     if (!["women", "men", "unisex"].includes(gender)) return json(response, 400, { error: "Unknown gender option" });
     if (!["any", "cold", "mild", "hot", "rainy"].includes(weather)) return json(response, 400, { error: "Unknown weather" });
     if (!["everyday", "work", "date", "event", "travel", "outdoor"].includes(occasion)) return json(response, 400, { error: "Unknown occasion" });
-    return json(response, 200, recommendationsFor(mood, gender, exclude, weather, occasion, wardrobe));
+    if (!Number.isInteger(limit) || limit < 1 || limit > 12) return json(response, 400, { error: "Limit must be from 1 to 12" });
+    const feedback = readScoped(FEEDBACK_FILE, dataOwner(request));
+    return json(response, 200, recommendationsFor(mood, gender, exclude, weather, occasion, wardrobe, limit, feedback, {}, context));
   }
   if (request.method === "GET" && url.pathname === "/api/saved") {
-    return json(response, 200, readSaved());
+    return json(response, 200, readScoped(SAVED_FILE, dataOwner(request)));
   }
   if (request.method === "GET" && url.pathname === "/api/history") {
-    return json(response, 200, readJson(HISTORY_FILE));
+    return json(response, 200, readScoped(HISTORY_FILE, dataOwner(request)));
+  }
+  if (request.method === "GET" && url.pathname === "/api/feedback") {
+    return json(response, 200, readScoped(FEEDBACK_FILE, dataOwner(request)));
   }
   if (request.method === "POST" && url.pathname === "/api/history") {
     try {
       const payload = await bodyFrom(request);
       if (!payload || typeof payload.outfit !== "string") return json(response, 400, { error: "Outfit is required" });
-      const history = readJson(HISTORY_FILE);
+      const owner = dataOwner(request);
+      const history = readScoped(HISTORY_FILE, owner);
       history.unshift({ ...payload, createdAt: new Date().toISOString() });
-      writeJson(HISTORY_FILE, history.slice(0, 100));
+      writeScoped(HISTORY_FILE, owner, history.slice(0, 100));
       return json(response, 201, history.slice(0, 100));
     } catch (error) {
       return json(response, 400, { error: error.message });
@@ -469,9 +678,10 @@ async function handler(request, response) {
       if (!payload || typeof payload.outfit !== "string" || !allowed.includes(payload.feedback)) {
         return json(response, 400, { error: "Valid outfit feedback is required" });
       }
-      const feedback = readJson(FEEDBACK_FILE);
+      const owner = dataOwner(request);
+      const feedback = readScoped(FEEDBACK_FILE, owner);
       feedback.unshift({ ...payload, createdAt: new Date().toISOString() });
-      writeJson(FEEDBACK_FILE, feedback.slice(0, 500));
+      writeScoped(FEEDBACK_FILE, owner, feedback.slice(0, 500));
       return json(response, 201, { status: "recorded" });
     } catch (error) {
       return json(response, 400, { error: error.message });
@@ -481,10 +691,11 @@ async function handler(request, response) {
     try {
       const payload = await bodyFrom(request);
       if (!payload || typeof payload.name !== "string") return json(response, 400, { error: "Outfit name is required" });
-      const saved = readSaved();
+      const owner = dataOwner(request);
+      const saved = readScoped(SAVED_FILE, owner);
       if (!saved.some(outfit => outfit.name === payload.name)) {
         saved.push(payload);
-        writeSaved(saved);
+        writeScoped(SAVED_FILE, owner, saved);
       }
       return json(response, 201, saved);
     } catch (error) {
@@ -493,14 +704,16 @@ async function handler(request, response) {
   }
   if (request.method === "DELETE" && url.pathname.startsWith("/api/saved/")) {
     const name = decodeURIComponent(url.pathname.slice("/api/saved/".length));
-    const saved = readSaved().filter(outfit => outfit.name !== name);
-    writeSaved(saved);
+    const owner = dataOwner(request);
+    const saved = readScoped(SAVED_FILE, owner).filter(outfit => outfit.name !== name);
+    writeScoped(SAVED_FILE, owner, saved);
     return json(response, 200, saved);
   }
   if (request.method === "DELETE" && url.pathname === "/api/data") {
-    writeSaved([]);
-    writeJson(HISTORY_FILE, []);
-    writeJson(FEEDBACK_FILE, []);
+    const owner = dataOwner(request);
+    writeScoped(SAVED_FILE, owner, []);
+    writeScoped(HISTORY_FILE, owner, []);
+    writeScoped(FEEDBACK_FILE, owner, []);
     return json(response, 200, { status: "deleted" });
   }
 

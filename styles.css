@@ -218,6 +218,76 @@ h1 {
   font-size: 13px;
   font-weight: 800;
 }
+.location-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: -12px 54px 24px;
+}
+.location-controls > .context-button { margin-left: 0; }
+.city-search { min-width: 260px; }
+.city-search label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.city-search-row { display: flex; gap: 8px; }
+.city-search input {
+  width: min(250px, 42vw);
+  min-width: 120px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 0 10px;
+}
+.location-privacy,
+#contextStatus {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+#contextStatus:not(:empty) { color: #5f6158; }
+.stylist-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 54px 28px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f7f7f2;
+}
+.stylist-panel h2 { margin: 0 0 6px; font-size: 21px; }
+.stylist-panel p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.stylist-panel .eyebrow { margin-bottom: 5px; }
+.stylist-form { display: flex; gap: 10px; }
+.stylist-form input {
+  min-width: 0;
+  flex: 1;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--white);
+}
+.stylist-form button:disabled { opacity: .6; cursor: wait; }
+.stylist-reply:empty { display: none; }
+.stylist-panel .outfit-grid:empty { display: none; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .wardrobe-dialog {
   width: min(520px, calc(100% - 32px));
@@ -233,6 +303,8 @@ h1 {
 .dialog-head h2 { margin: 0; font-size: 28px; }
 .dialog-close { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: var(--white); font-size: 22px; }
 .dialog-copy { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.storage-consent { display: flex; align-items: center; gap: 9px; margin: 14px 0 4px; font-size: 13px; font-weight: 700; }
+.storage-consent input { accent-color: var(--ink); }
 .wardrobe-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .wardrobe-options label { display: flex; align-items: center; gap: 8px; min-height: 42px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 13px; }
 .wardrobe-options input { accent-color: var(--ink); }
@@ -610,6 +682,8 @@ h1 {
 @media (max-width: 900px) {
   .topbar { padding: 0 24px; }
   .hero, .mood-section, .recommendation { padding-left: 24px; padding-right: 24px; }
+  .stylist-panel { margin-left: 24px; margin-right: 24px; }
+  .location-controls { margin-left: 24px; margin-right: 24px; }
   .mood-grid { grid-template-columns: repeat(4, minmax(100px, 1fr)); }
   .outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -625,6 +699,14 @@ h1 {
   .context-bar { margin: 0 16px 18px; align-items: stretch; flex-wrap: wrap; }
   .context-bar label { min-width: calc(50% - 5px); flex: 1; }
   .context-button { width: 100%; margin-left: 0; }
+  .location-controls { align-items: stretch; flex-direction: column; margin: 0 16px 20px; }
+  .location-controls > .context-button { width: 100%; }
+  .city-search { min-width: 0; }
+  .city-search-row { align-items: stretch; flex-direction: column; }
+  .city-search input { width: 100%; }
+  .stylist-panel { margin: 0 16px 22px; padding: 16px; }
+  .stylist-form { align-items: stretch; flex-direction: column; }
+  .stylist-form button { min-height: 44px; }
   h1 { font-size: 40px; letter-spacing: -2px; }
   .shuffle-button { height: 42px; }
   .mood-section { padding: 0 16px 34px; }

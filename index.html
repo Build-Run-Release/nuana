@@ -68,10 +68,36 @@
               <option value="outdoor">Outdoor</option>
             </select>
           </label>
-          <button id="weatherLocationButton" class="context-button" type="button">Use location</button>
           <button id="travelButton" class="context-button" type="button">Travel capsule</button>
           <button id="wardrobeButton" class="context-button" type="button">My wardrobe</button>
         </div>
+        <div class="location-controls">
+          <button id="weatherLocationButton" class="context-button" type="button">Use my location</button>
+          <form id="citySearchForm" class="city-search">
+            <label for="cityInput">Or search weather by city</label>
+            <div class="city-search-row">
+              <input id="cityInput" name="city" maxlength="120" autocomplete="address-level2" placeholder="City, e.g. Lagos">
+              <button class="context-button" type="submit">Search city</button>
+            </div>
+          </form>
+          <p class="location-privacy">City searches and consented coordinates are sent to Open-Meteo for weather only; Nuana does not save your location.</p>
+          <p id="contextStatus" role="status" aria-live="polite"></p>
+        </div>
+
+        <section class="stylist-panel" aria-labelledby="stylistTitle">
+          <div>
+            <p class="eyebrow">YOUR PRIVATE STYLE HELPER</p>
+            <h2 id="stylistTitle">Have a styling problem?</h2>
+            <p>Ask for a look by mood, weather, occasion, or what feels tricky. Your request is not saved or sent to an AI service.</p>
+          </div>
+          <form id="stylistForm" class="stylist-form">
+            <label class="sr-only" for="stylistPrompt">Describe what you need help with</label>
+            <input id="stylistPrompt" maxlength="500" placeholder="Try “comfortable outfit for a rainy workday”" required>
+            <button class="primary-button" type="submit">Get outfit ideas</button>
+          </form>
+          <p id="stylistReply" class="stylist-reply" role="status" aria-live="polite"></p>
+          <div class="outfit-grid" id="stylistGrid"></div>
+        </section>
 
         <div class="mood-section">
           <div class="mood-tabs" id="moodTabs" aria-label="Mood categories"></div>
@@ -88,6 +114,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
               Try another
             </button>
+            <button id="moreIdeasButton" class="text-button" type="button">More combinations</button>
           </div>
           <div class="outfit-grid" id="outfitGrid"></div>
         </section>
@@ -115,7 +142,7 @@
     </main>
     <footer class="app-footer">
       Recommendations are for styling inspiration, not medical or mental-health guidance.
-      Mood data and preferences stay on this device unless you explicitly connect an account.
+      Preferences are stored on this device only with your opt-in. Location is optional and used for weather only when you request it.
     </footer>
   </div>
 
@@ -156,7 +183,12 @@
         </div>
         <button class="dialog-close" value="close" aria-label="Close">×</button>
       </div>
-      <p class="dialog-copy">Nuana stores preferences on this device and keeps saved looks, feedback, and limited history on the local server.</p>
+      <p class="dialog-copy">Nuana uses your browser's time zone and language for recommendations. Optional location is used only for weather and is not saved. Server data is tied to your account or guest session.</p>
+      <label class="storage-consent">
+        <input id="rememberPreferences" type="checkbox">
+        Remember my preferences on this device
+      </label>
+      <p class="dialog-copy">Off by default. When enabled, Nuana stores only presentation, manual weather, occasion, wardrobe selections, and recently worn looks in this browser.</p>
       <div class="account-panel">
         <p id="accountStatus" class="account-status">No account signed in</p>
         <div class="account-fields">
@@ -169,7 +201,7 @@
         <button class="privacy-danger" id="deleteAccountButton" type="button" hidden>Delete account and server data</button>
       </div>
       <button class="primary-button privacy-action" id="exportDataButton" type="button">Export my data</button>
-      <button class="privacy-danger" id="deleteDataButton" type="button">Delete all my local data</button>
+      <button class="privacy-danger" id="deleteDataButton" type="button">Delete all my data</button>
       <a class="privacy-link" href="/privacy.html">Privacy notice</a>
       <a class="privacy-link" href="/terms.html">Terms</a>
     </form>
@@ -192,6 +224,7 @@
       <div id="capsuleResults" class="capsule-results" aria-live="polite"></div>
     </form>
   </dialog>
+  <script src="userContext.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

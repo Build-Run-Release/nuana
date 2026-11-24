@@ -14,11 +14,15 @@ Then open `http://localhost:4173`.
 
 - `GET /api/health`
 - `GET /api/moods`
-- `GET /api/recommendations?mood=happy&gender=unisex&weather=mild&occasion=everyday`
+- `GET /api/recommendations?mood=happy&gender=unisex&weather=mild&occasion=everyday&limit=9`
+- `POST /api/stylist` for private, rules-based outfit help
+- `POST /api/travel/capsule` for 1–14 day packing plans
 - `GET /api/saved`
 - `POST /api/saved`
 - `DELETE /api/saved/:name`
 - `POST /api/history`
+- `GET /api/history`
 - `POST /api/feedback`
+- `GET /api/feedback`
 
 See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the implementation record and roadmap.

@@ -47,17 +47,29 @@ const outfits = [
 ];
 
 const categories = ["All", "Bright", "Soft", "Bold", "Deep", "Refined"];
+const userContext = window.NuanaUserContext.create();
+const preferenceKeys = ["nuanaGender", "nuanaWeather", "nuanaOccasion", "nuanaWardrobe", "nuanaRecentlyWorn"];
+let storageConsent = localStorage.getItem("nuanaStorageConsent") === "yes";
+function savedPreference(key) {
+  return storageConsent ? localStorage.getItem(key) : null;
+}
+function rememberPreference(key, value) {
+  if (storageConsent) localStorage.setItem(key, value);
+}
 let activeCategory = "All";
 let activeMood = "happy";
-let activeGender = localStorage.getItem("nuanaGender") || "unisex";
-let activeWeather = localStorage.getItem("nuanaWeather") || "any";
-let activeOccasion = localStorage.getItem("nuanaOccasion") || "everyday";
-let wardrobe = JSON.parse(localStorage.getItem("nuanaWardrobe") || "null") || [
+let activeGender = savedPreference("nuanaGender") || "unisex";
+let activeWeather = savedPreference("nuanaWeather") || "any";
+let manualWeather = activeWeather;
+let activeOccasion = savedPreference("nuanaOccasion") || "everyday";
+let wardrobe = JSON.parse(savedPreference("nuanaWardrobe") || "null") || [
   "tailored trousers", "relaxed jeans", "cotton tee", "knit", "blazer", "jacket", "loafers", "trainers"
 ];
 let suggestedHistory = [];
-let recentlyWorn = JSON.parse(localStorage.getItem("nuanaRecentlyWorn") || "[]");
+let recentlyWorn = JSON.parse(savedPreference("nuanaRecentlyWorn") || "[]");
 let savedOutfits = [];
+let recommendationLimit = 3;
+const recommendationCache = new Map();
 
 const moodTabs = document.querySelector("#moodTabs");
 const moodGrid = document.querySelector("#moodGrid");
@@ -80,13 +92,20 @@ function renderMoods() {
   ).join("");
 }
 
-function recommendationReason(outfit) {
-  const weatherText = activeWeather === "any" ? "seasonless styling" : `${activeWeather} weather`;
-  const occasionText = activeOccasion === "everyday" ? "daily wear" : activeOccasion;
-  return `Why: ${weatherText}, ${occasionText}, and a ${outfit.style.toLowerCase()} shape selected for ${moods.find(mood => mood.id === activeMood)?.name.toLowerCase() || "this"} mood.`;
+function recommendationReason(outfit, context = {}) {
+  const weather = context.weather || activeWeather;
+  const occasion = context.occasion || activeOccasion;
+  const moodId = context.mood || activeMood;
+  const weatherText = weather === "any" ? "seasonless styling" : `${weather} weather`;
+  const occasionText = occasion === "everyday" ? "daily wear" : occasion;
+  const localContext = [userContext.timeOfDay, userContext.season].filter(Boolean).join(" and ");
+  const localContextText = localContext ? `, suited to ${localContext} locally` : "";
+  const style = outfit.style.toLowerCase();
+  const article = /^[aeiou]/.test(style) ? "an" : "a";
+  return `Why: ${weatherText}, ${occasionText}${localContextText}, and ${article} ${style} shape selected for ${moods.find(mood => mood.id === moodId)?.name.toLowerCase() || "this"} mood.`;
 }
 
-async function getRecommendations(moodId) {
+async function getRecommendations(moodId, limit = recommendationLimit) {
   const exclude = suggestedHistory.join(",");
   const query = new URLSearchParams({
     mood: moodId,
@@ -94,7 +113,9 @@ async function getRecommendations(moodId) {
     weather: activeWeather,
     occasion: activeOccasion,
     wardrobe: wardrobe.join(","),
-    exclude
+    exclude,
+    limit: String(limit),
+    context: JSON.stringify(userContext.getRecommendationContext())
   });
   try {
     const response = await fetch(`/api/recommendations?${query}`);
@@ -108,7 +129,7 @@ async function getRecommendations(moodId) {
   }
 }
 
-function outfitCard(outfit) {
+function outfitCard(outfit, context) {
   const saved = savedOutfits.some(savedOutfit => savedOutfit.name === outfit.name);
   return `
     <article class="outfit-card" data-name="${outfit.name}">
@@ -133,11 +154,13 @@ function outfitCard(outfit) {
             <h3 class="outfit-name">${outfit.name}</h3>
             <p class="outfit-desc">${outfit.desc}</p>
             <p class="outfit-occasion">${outfit.occasion}</p>
-            <p class="recommendation-reason">${recommendationReason(outfit)}</p>
+            <p class="recommendation-reason">${recommendationReason(outfit, context)}</p>
             <div class="feedback-row" aria-label="How does this look fit?">
               <button class="feedback-button" data-feedback="good-fit" data-outfit="${outfit.name}" aria-label="Good fit">Good fit</button>
               <button class="feedback-button" data-feedback="not-my-style" data-outfit="${outfit.name}" aria-label="Not my style">Not my style</button>
               <button class="feedback-button" data-feedback="too-formal" data-outfit="${outfit.name}" aria-label="Too formal">Too formal</button>
+              <button class="feedback-button" data-feedback="too-casual" data-outfit="${outfit.name}" aria-label="Too casual">Too casual</button>
+              <button class="feedback-button" data-feedback="uncomfortable" data-outfit="${outfit.name}" aria-label="Uncomfortable">Uncomfortable</button>
               <button class="feedback-button" data-worn="${outfit.name}" aria-label="Mark as worn">Worn</button>
             </div>
           </div>
@@ -156,6 +179,7 @@ async function renderRecommendations() {
   document.querySelector("#recommendationTitle").textContent = `${mood.name} calls for...`;
   outfitGrid.setAttribute("aria-busy", "true");
   const recommendations = await getRecommendations(activeMood);
+  recommendations.forEach(outfit => recommendationCache.set(outfit.name, outfit));
   recommendations.forEach(outfit => {
     if (!suggestedHistory.includes(outfit.name)) suggestedHistory.push(outfit.name);
   });
@@ -163,6 +187,48 @@ async function renderRecommendations() {
   outfitGrid.innerHTML = recommendations.map(outfitCard).join("");
   outfitGrid.setAttribute("aria-busy", "false");
 }
+
+document.querySelector("#moreIdeasButton").addEventListener("click", async () => {
+  recommendationLimit = recommendationLimit >= 12 ? 3 : Math.min(recommendationLimit + 3, 12);
+  document.querySelector("#moreIdeasButton").textContent =
+    recommendationLimit >= 12 ? "Show fewer ideas" : "More combinations";
+  await renderRecommendations();
+});
+
+document.querySelector("#stylistForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const prompt = document.querySelector("#stylistPrompt");
+  const reply = document.querySelector("#stylistReply");
+  const grid = document.querySelector("#stylistGrid");
+  const submit = event.currentTarget.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  reply.textContent = "Putting together a few ideas…";
+  grid.innerHTML = "";
+  try {
+    const response = await fetch("/api/stylist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: prompt.value,
+        mood: activeMood,
+        gender: activeGender,
+        weather: activeWeather,
+        occasion: activeOccasion,
+        wardrobe,
+        context: userContext.getRecommendationContext()
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not make outfit suggestions");
+    reply.textContent = result.reply;
+    result.recommendations.forEach(outfit => recommendationCache.set(outfit.name, outfit));
+    grid.innerHTML = result.recommendations.map(outfit => outfitCard(outfit, result)).join("");
+  } catch (error) {
+    reply.textContent = error.message || "The style helper is unavailable. Please try again.";
+  } finally {
+    submit.disabled = false;
+  }
+});
 
 function renderSaved() {
   const saved = savedOutfits;
@@ -186,17 +252,14 @@ async function loadSaved() {
 }
 
 async function saveOutfit(outfitName) {
-  const outfit = [...outfitGrid.querySelectorAll(".outfit-card")].map(card => card.dataset.name).includes(outfitName)
-    ? await fetch(`/api/recommendations?mood=${activeMood}&gender=${activeGender}`)
-      .then(response => response.json())
-      .then(list => list.find(item => item.name === outfitName))
-    : savedOutfits.find(item => item.name === outfitName);
+  const outfit = recommendationCache.get(outfitName) || savedOutfits.find(item => item.name === outfitName);
   if (!outfit) return;
-  await fetch("/api/saved", {
+  const response = await fetch("/api/saved", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(outfit)
   });
+  if (!response.ok) throw new Error("Could not save this look");
   await loadSaved();
 }
 
@@ -264,46 +327,109 @@ occasionSelect.value = activeOccasion;
 
 weatherSelect.addEventListener("change", () => {
   activeWeather = weatherSelect.value;
-  localStorage.setItem("nuanaWeather", activeWeather);
+  manualWeather = activeWeather;
+  rememberPreference("nuanaWeather", activeWeather);
   suggestedHistory = [];
   renderRecommendations();
 });
 
+function localWeatherCategory() {
+  const current = userContext.weather?.current;
+  if (!current) return null;
+  const code = current.weatherCode;
+  if (current.precipitationMm > 0 || code >= 51 && code <= 67 || code >= 80 && code <= 82 || code === 95) {
+    return "rainy";
+  }
+  if (current.temperatureC < 12) return "cold";
+  if (current.temperatureC > 25) return "hot";
+  return "mild";
+}
+
+function updateContextStatus(warning = "") {
+  userContext.refreshClock();
+  const status = document.querySelector("#contextStatus");
+  const location = userContext.location;
+  const place = location
+    ? [location.city, location.region, location.country].filter(Boolean).join(", ") || "your location"
+    : null;
+  const localDetails = [
+    `${userContext.localDateTime} (${userContext.timeOfDay}) in ${userContext.timeZone}`,
+    userContext.season
+      ? `${userContext.season} in the ${userContext.hemisphere === "south" ? "southern" : "northern"} hemisphere`
+      : location ? "season unavailable for this latitude" : "choose a location for local season",
+    `language ${userContext.language}`
+  ].filter(Boolean);
+  const weather = userContext.weather;
+  const current = weather?.current;
+  const weatherDetails = current
+    ? `Now in ${place}: ${current.temperatureC}°C, ${current.precipitationMm} mm precipitation.`
+    : "";
+  const forecast = weather?.forecast?.length
+    ? ` Three-day forecast: ${weather.forecast.map(day =>
+      `${day.date} ${day.temperatureMinC}–${day.temperatureMaxC}°C, rain chance ${day.precipitationProbabilityMax ?? "unknown"}%`
+    ).join("; ")}.`
+    : "";
+  status.textContent = [
+    localDetails.join(" · "),
+    weatherDetails + forecast,
+    warning
+  ].filter(Boolean).join(" ");
+}
+
+async function applyDetectedLocation(result) {
+  updateContextStatus(result.warning || "");
+  const detected = localWeatherCategory();
+  if (detected) {
+    activeWeather = detected;
+    weatherSelect.value = detected;
+  } else {
+    activeWeather = manualWeather;
+    weatherSelect.value = manualWeather;
+  }
+  suggestedHistory = [];
+  await renderRecommendations();
+}
+
 document.querySelector("#weatherLocationButton").addEventListener("click", async () => {
   const consent = window.confirm(
-    "Use your approximate location to check weather? Nuana will not store location data or share it with advertisers."
+    "Use your location for weather? Your coordinates will be sent to Open-Meteo for current and forecast weather. Nuana will not save them."
   );
-  if (!consent) return;
-  if (!navigator.geolocation) {
-    showToast("Location is unavailable; use manual weather");
+  if (!consent) {
+    updateContextStatus("Location was not used. You can search for a city instead; recommendations still work without weather.");
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    async position => {
-      try {
-        const { latitude, longitude } = position.coords;
-        const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,rain&timezone=auto`
-        );
-        if (!response.ok) throw new Error("Weather lookup failed");
-        const weather = await response.json();
-        const temperature = weather.current?.temperature_2m;
-        const rain = weather.current?.rain;
-        const detected = rain > 0 ? "rainy" : temperature < 12 ? "cold" : temperature > 25 ? "hot" : "mild";
-        weatherSelect.value = detected;
-        weatherSelect.dispatchEvent(new Event("change"));
-        showToast(`Weather set to ${detected}`);
-      } catch {
-        showToast("Weather unavailable; use manual weather");
-      }
-    },
-    () => showToast("Location unavailable; use manual weather"),
-    { enableHighAccuracy: false, timeout: 8000, maximumAge: 3600000 }
-  );
+
+  const button = document.querySelector("#weatherLocationButton");
+  button.disabled = true;
+  updateContextStatus("Finding your location and local forecast…");
+  try {
+    const result = await userContext.useLocation();
+    await applyDetectedLocation(result);
+  } catch (error) {
+    updateContextStatus(`${error.message} Recommendations still work without live weather.`);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector("#citySearchForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = document.querySelector("#cityInput");
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  updateContextStatus("Looking up the city and local forecast…");
+  try {
+    const result = await userContext.searchCity(input.value);
+    await applyDetectedLocation(result);
+  } catch (error) {
+    updateContextStatus(`${error.message} You can still use manual weather settings.`);
+  } finally {
+    button.disabled = false;
+  }
 });
 occasionSelect.addEventListener("change", () => {
   activeOccasion = occasionSelect.value;
-  localStorage.setItem("nuanaOccasion", activeOccasion);
+  rememberPreference("nuanaOccasion", activeOccasion);
   suggestedHistory = [];
   renderRecommendations();
 });
@@ -318,15 +444,32 @@ document.querySelector("#wardrobeButton").addEventListener("click", () => {
 
 document.querySelector("#wardrobeForm").addEventListener("submit", () => {
   wardrobe = [...document.querySelectorAll("#wardrobeForm input:checked")].map(input => input.value);
-  localStorage.setItem("nuanaWardrobe", JSON.stringify(wardrobe));
+  rememberPreference("nuanaWardrobe", JSON.stringify(wardrobe));
   suggestedHistory = [];
   renderRecommendations();
   showToast("Wardrobe updated");
 });
 
 document.querySelector("#profileButton").addEventListener("click", () => {
+  document.querySelector("#rememberPreferences").checked = storageConsent;
   document.querySelector("#privacyDialog").showModal();
   refreshAccountStatus();
+});
+
+document.querySelector("#rememberPreferences").addEventListener("change", event => {
+  storageConsent = event.currentTarget.checked;
+  if (storageConsent) {
+    localStorage.setItem("nuanaStorageConsent", "yes");
+    rememberPreference("nuanaGender", activeGender);
+    rememberPreference("nuanaWeather", activeWeather);
+    rememberPreference("nuanaOccasion", activeOccasion);
+    rememberPreference("nuanaWardrobe", JSON.stringify(wardrobe));
+    rememberPreference("nuanaRecentlyWorn", JSON.stringify(recentlyWorn));
+    showToast("Preference storage enabled on this device");
+  } else {
+    [...preferenceKeys, "nuanaStorageConsent"].forEach(key => localStorage.removeItem(key));
+    showToast("Saved device preferences deleted");
+  }
 });
 
 async function refreshAccountStatus() {
@@ -377,10 +520,17 @@ document.querySelector("#logoutButton").addEventListener("click", async () => {
 });
 document.querySelector("#deleteAccountButton").addEventListener("click", async () => {
   if (!window.confirm("Delete this account and all server-side saved data?")) return;
-  await fetch("/api/auth/account", { method: "DELETE" });
-  localStorage.clear();
-  showToast("Account and local data deleted");
-  window.location.reload();
+  try {
+    const response = await fetch("/api/auth/account", { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not delete the account");
+    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent"]
+      .forEach(key => localStorage.removeItem(key));
+    showToast("Account and local data deleted");
+    window.location.reload();
+  } catch (error) {
+    showToast(error.message || "Could not delete the account. Please try again.");
+  }
 });
 
 document.querySelector("#travelButton").addEventListener("click", () => {
@@ -389,64 +539,88 @@ document.querySelector("#travelButton").addEventListener("click", () => {
 });
 
 document.querySelector("#generateCapsuleButton").addEventListener("click", async () => {
-  const days = document.querySelector("#travelDays").value;
-  const response = await fetch("/api/travel/capsule", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ days, weather: activeWeather, gender: activeGender })
-  });
-  if (!response.ok) {
-    showToast("Could not build a capsule");
-    return;
+  const daysInput = document.querySelector("#travelDays");
+  const results = document.querySelector("#capsuleResults");
+  if (!daysInput.reportValidity()) return;
+  const button = document.querySelector("#generateCapsuleButton");
+  button.disabled = true;
+  results.textContent = "Building your packing plan…";
+  try {
+    const response = await fetch("/api/travel/capsule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        days: daysInput.value,
+        weather: activeWeather,
+        gender: activeGender,
+        wardrobe
+      })
+    });
+    const capsule = await response.json();
+    if (!response.ok) throw new Error(capsule.error || "Could not build a capsule");
+    if (capsule.capsule.length !== capsule.days) throw new Error("The packing plan was incomplete. Please try again.");
+    results.innerHTML = capsule.capsule.map(item =>
+      `<div class="capsule-item"><strong>Day ${item.day}: ${item.name}</strong><br>${item.desc}<br>${item.occasion}</div>`
+    ).join("") + `<div class="recommendation-reason">${capsule.packingTip}</div>`;
+  } catch (error) {
+    results.textContent = error.message || "Could not build a capsule. Please try again.";
+  } finally {
+    button.disabled = false;
   }
-  const capsule = await response.json();
-  document.querySelector("#capsuleResults").innerHTML = capsule.capsule.map(item =>
-    `<div class="capsule-item"><strong>Day ${item.day}: ${item.name}</strong><br>${item.desc}<br>${item.occasion}</div>`
-  ).join("") + `<div class="recommendation-reason">${capsule.packingTip}</div>`;
 });
 
 document.querySelector("#exportDataButton").addEventListener("click", async () => {
-  const [savedResponse, historyResponse] = await Promise.all([
-    fetch("/api/saved"),
-    fetch("/api/history")
-  ]);
-  const exportData = {
-    exportedAt: new Date().toISOString(),
-    localPreferences: {
-      presentation: activeGender,
-      weather: activeWeather,
-      occasion: activeOccasion,
-      wardrobe
-    },
-    saved: await savedResponse.json(),
-    history: await historyResponse.json()
-  };
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "nuana-my-data.json";
-  link.click();
-  URL.revokeObjectURL(link.href);
-  showToast("Data exported");
+  try {
+    const [savedResponse, historyResponse, feedbackResponse] = await Promise.all([
+      fetch("/api/saved"),
+      fetch("/api/history"),
+      fetch("/api/feedback")
+    ]);
+    if (![savedResponse, historyResponse, feedbackResponse].every(response => response.ok)) {
+      throw new Error("Could not export all of your server data");
+    }
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      localPreferences: {
+        presentation: activeGender,
+        weather: activeWeather,
+        occasion: activeOccasion,
+        wardrobe
+      },
+      saved: await savedResponse.json(),
+      history: await historyResponse.json(),
+      feedback: await feedbackResponse.json(),
+      recentlyWorn
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "nuana-my-data.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+    showToast("Data exported");
+  } catch (error) {
+    showToast(error.message || "Could not export your data. Please try again.");
+  }
 });
 
 document.querySelector("#deleteDataButton").addEventListener("click", async () => {
-  localStorage.removeItem("nuanaSaved");
-  localStorage.removeItem("nuanaGender");
-  localStorage.removeItem("nuanaWeather");
-  localStorage.removeItem("nuanaOccasion");
-  localStorage.removeItem("nuanaWardrobe");
-  localStorage.removeItem("nuanaRecentlyWorn");
-  await Promise.all([
-    fetch("/api/data", { method: "DELETE" })
-  ]).catch(() => {});
-  window.location.reload();
+  if (!window.confirm("Delete your Nuana preferences, saved looks, history, and feedback from this browser and the server?")) return;
+  try {
+    const response = await fetch("/api/data", { method: "DELETE" });
+    if (!response.ok) throw new Error("The server could not delete your data");
+    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent"]
+      .forEach(key => localStorage.removeItem(key));
+    window.location.reload();
+  } catch (error) {
+    showToast(error.message || "Could not delete your data. Please try again.");
+  }
 });
 
 document.querySelectorAll("[data-gender]").forEach(button => {
   button.addEventListener("click", () => {
     activeGender = button.dataset.gender;
-    localStorage.setItem("nuanaGender", activeGender);
+    rememberPreference("nuanaGender", activeGender);
     document.querySelectorAll("[data-gender]").forEach(option =>
       option.classList.toggle("active", option.dataset.gender === activeGender)
     );
@@ -459,7 +633,7 @@ document.addEventListener("click", event => {
   const wornButton = event.target.closest("[data-worn]");
   if (wornButton) {
     recentlyWorn = [wornButton.dataset.worn, ...recentlyWorn.filter(name => name !== wornButton.dataset.worn)].slice(0, 20);
-    localStorage.setItem("nuanaRecentlyWorn", JSON.stringify(recentlyWorn));
+    rememberPreference("nuanaRecentlyWorn", JSON.stringify(recentlyWorn));
     fetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -475,11 +649,14 @@ document.addEventListener("click", event => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outfit: feedbackButton.dataset.outfit, feedback: feedbackButton.dataset.feedback })
-    }).then(() => {
+    }).then(async response => {
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save your feedback");
       feedbackButton.parentElement.querySelectorAll("[data-feedback]").forEach(button => button.classList.remove("selected"));
       feedbackButton.classList.add("selected");
-      showToast("Preference noted");
-    });
+      showToast("Preference noted — recommendations updated");
+      await renderRecommendations();
+    }).catch(error => showToast(error.message || "Could not save your feedback"));
   }
 
   const saveButton = event.target.closest("[data-save]");
@@ -503,6 +680,7 @@ document.addEventListener("click", event => {
   if (viewButton) switchView(viewButton.dataset.view);
 });
 
+updateContextStatus();
 renderTabs();
 renderMoods();
 renderRecommendations();
