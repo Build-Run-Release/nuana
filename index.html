@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nuana — Mood to outfit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Nuana home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2.5c1.8 4.8 4.7 7.7 9.5 9.5-4.8 1.8-7.7 4.7-9.5 9.5C10.2 16.7 7.3 13.8 2.5 12 7.3 10.2 10.2 7.3 12 2.5Z"/></svg>
+        </span>
+        <span>Nuana</span>
+      </a>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-link active" data-view="discover">Discover</button>
+        <button class="nav-link" data-view="saved">Saved <span id="savedCount" class="nav-count">0</span></button>
+      </nav>
+      <button class="profile-button" id="profileButton" aria-label="Open privacy and profile">NP</button>
+    </header>
+
+    <main>
+      <section id="discoverView" class="view active">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">YOUR MOOD, YOUR UNIFORM</p>
+            <h1>What are you feeling today?</h1>
+            <p class="subtitle">Choose a mood and we'll find a look that meets you there.</p>
+          </div>
+          <div class="hero-actions">
+            <div class="gender-picker" aria-label="Clothing style">
+              <button class="gender-option active" data-gender="unisex">Unisex</button>
+              <button class="gender-option" data-gender="women">Women</button>
+              <button class="gender-option" data-gender="men">Men</button>
+            </div>
+            <button id="shuffleButton" class="shuffle-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+              Surprise me
+            </button>
+          </div>
+        </div>
+
+        <div class="context-bar" aria-label="Outfit preferences">
+          <label>
+            <span>Weather</span>
+            <select id="weatherSelect">
+              <option value="any">Any weather</option>
+              <option value="cold">Cold</option>
+              <option value="mild">Mild</option>
+              <option value="hot">Hot</option>
+              <option value="rainy">Rainy</option>
+            </select>
+          </label>
+          <label>
+            <span>Occasion</span>
+            <select id="occasionSelect">
+              <option value="everyday">Everyday</option>
+              <option value="work">Work</option>
+              <option value="date">Date or dinner</option>
+              <option value="event">Social event</option>
+              <option value="travel">Travel</option>
+              <option value="outdoor">Outdoor</option>
+            </select>
+          </label>
+          <button id="weatherLocationButton" class="context-button" type="button">Use location</button>
+          <button id="travelButton" class="context-button" type="button">Travel capsule</button>
+          <button id="wardrobeButton" class="context-button" type="button">My wardrobe</button>
+        </div>
+
+        <div class="mood-section">
+          <div class="mood-tabs" id="moodTabs" aria-label="Mood categories"></div>
+          <div class="mood-grid" id="moodGrid"></div>
+        </div>
+
+        <section class="recommendation" aria-live="polite">
+          <div class="recommendation-head">
+            <div>
+              <p class="eyebrow">TODAY’S RECOMMENDATION</p>
+              <h2 id="recommendationTitle">Made for your mood</h2>
+            </div>
+            <button id="refreshButton" class="text-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+              Try another
+            </button>
+          </div>
+          <div class="outfit-grid" id="outfitGrid"></div>
+        </section>
+      </section>
+
+      <section id="savedView" class="view">
+        <div class="hero saved-hero">
+          <div>
+            <p class="eyebrow">YOUR EDIT</p>
+            <h1>Saved looks</h1>
+            <p class="subtitle">The outfits you want to come back to.</p>
+          </div>
+        </div>
+        <div class="outfit-grid" id="savedGrid"></div>
+        <div id="emptySaved" class="empty-state">
+          <span class="empty-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.8-7.7 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>
+          </span>
+          <h2>Nothing saved yet</h2>
+          <p>Tap the heart on a look to keep it here.</p>
+          <button class="primary-button" data-view="discover">Discover looks</button>
+        </div>
+      </section>
+
+    </main>
+    <footer class="app-footer">
+      Recommendations are for styling inspiration, not medical or mental-health guidance.
+      Mood data and preferences stay on this device unless you explicitly connect an account.
+    </footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="wardrobeDialog" class="wardrobe-dialog">
+    <form method="dialog" id="wardrobeForm">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">MY CLOSET</p>
+          <h2>Available pieces</h2>
+        </div>
+        <button class="dialog-close" value="close" aria-label="Close">×</button>
+      </div>
+      <p class="dialog-copy">Add only the items you own. Recommendations will prioritize them and keep your closet in this browser.</p>
+      <div class="wardrobe-options">
+        <label><input type="checkbox" value="tailored trousers" checked> Tailored trousers</label>
+        <label><input type="checkbox" value="relaxed jeans" checked> Relaxed jeans</label>
+        <label><input type="checkbox" value="cotton tee" checked> Cotton tee</label>
+        <label><input type="checkbox" value="knit" checked> Knitwear</label>
+        <label><input type="checkbox" value="blazer" checked> Blazer</label>
+        <label><input type="checkbox" value="jacket" checked> Jacket</label>
+        <label><input type="checkbox" value="skirt"> Skirt</label>
+        <label><input type="checkbox" value="dress"> Dress</label>
+        <label><input type="checkbox" value="loafers" checked> Loafers</label>
+        <label><input type="checkbox" value="trainers" checked> Trainers</label>
+        <label><input type="checkbox" value="boots"> Boots</label>
+        <label><input type="checkbox" value="sandals"> Sandals</label>
+      </div>
+      <button class="primary-button dialog-save" value="save">Save wardrobe</button>
+    </form>
+  </dialog>
+  <dialog id="privacyDialog" class="wardrobe-dialog">
+    <form method="dialog" id="privacyForm">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">YOUR DATA</p>
+          <h2>Privacy controls</h2>
+        </div>
+        <button class="dialog-close" value="close" aria-label="Close">×</button>
+      </div>
+      <p class="dialog-copy">Nuana stores preferences on this device and keeps saved looks, feedback, and limited history on the local server.</p>
+      <div class="account-panel">
+        <p id="accountStatus" class="account-status">No account signed in</p>
+        <div class="account-fields">
+          <input id="accountEmail" type="email" autocomplete="email" placeholder="Email">
+          <input id="accountPassword" type="password" autocomplete="current-password" placeholder="Password">
+        </div>
+        <button class="primary-button privacy-action" id="registerButton" type="button">Create account</button>
+        <button class="privacy-secondary" id="loginButton" type="button">Sign in</button>
+        <button class="privacy-danger" id="logoutButton" type="button" hidden>Sign out</button>
+        <button class="privacy-danger" id="deleteAccountButton" type="button" hidden>Delete account and server data</button>
+      </div>
+      <button class="primary-button privacy-action" id="exportDataButton" type="button">Export my data</button>
+      <button class="privacy-danger" id="deleteDataButton" type="button">Delete all my local data</button>
+      <a class="privacy-link" href="/privacy.html">Privacy notice</a>
+      <a class="privacy-link" href="/terms.html">Terms</a>
+    </form>
+  </dialog>
+  <dialog id="travelDialog" class="wardrobe-dialog">
+    <form method="dialog" id="travelForm">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">TRAVEL CAPSULE</p>
+          <h2>Plan a compact trip</h2>
+        </div>
+        <button class="dialog-close" value="close" aria-label="Close">×</button>
+      </div>
+      <p class="dialog-copy">Create a repeatable outfit plan using 1–14 days and the selected presentation.</p>
+      <label class="travel-days">
+        <span>Trip length</span>
+        <input id="travelDays" type="number" min="1" max="14" value="3">
+      </label>
+      <button class="primary-button dialog-save" id="generateCapsuleButton" value="capsule" type="button">Generate capsule</button>
+      <div id="capsuleResults" class="capsule-results" aria-live="polite"></div>
+    </form>
+  </dialog>
+  <script src="app.js"></script>
+</body>
+</html>

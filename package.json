@@ -1,0 +1,12 @@
+{
+  "name": "nuana-outfit-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mood-based outfit recommendations",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test.js",
+    "backup": "node backup.js"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+saved.json
+history.json
+feedback.json
+users.json
+sessions.json
+backups/
+.env
+*.log
