@@ -537,7 +537,7 @@ document.querySelector("#deleteAccountButton").addEventListener("click", async (
     const response = await fetch("/api/auth/account", { method: "DELETE" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not delete the account");
-    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent"]
+    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent", "nuanaTheme"]
       .forEach(key => localStorage.removeItem(key));
     showToast("Account and local data deleted");
     window.location.reload();
@@ -622,7 +622,7 @@ document.querySelector("#deleteDataButton").addEventListener("click", async () =
   try {
     const response = await fetch("/api/data", { method: "DELETE" });
     if (!response.ok) throw new Error("The server could not delete your data");
-    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent"]
+    ["nuanaSaved", ...preferenceKeys, "nuanaStorageConsent", "nuanaTheme"]
       .forEach(key => localStorage.removeItem(key));
     window.location.reload();
   } catch (error) {

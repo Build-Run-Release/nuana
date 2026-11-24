@@ -6,7 +6,9 @@
   <title>Nuana — Mood to outfit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -22,7 +24,10 @@
         <button class="nav-link active" data-view="discover">Discover</button>
         <button class="nav-link" data-view="saved">Saved <span id="savedCount" class="nav-count">0</span></button>
       </nav>
-      <button class="profile-button" id="profileButton" aria-label="Open privacy and profile">NP</button>
+      <div class="topbar-actions">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-pressed="false">Dark theme</button>
+        <button class="profile-button" id="profileButton" aria-label="Open privacy and profile">NP</button>
+      </div>
     </header>
 
     <main>
